@@ -2,13 +2,12 @@ const S3VideoUploader = require('./S3VideoUploader');
 const S3VideoDownloader = require('./S3VideoDownloader');
 const SQSMessageCreator = require('./SQSMessageCreator');
 const config = require('../../config');
-const path = require('path');
 const { spawn } = require('child_process');
 const fs = require('fs');
 var AWS = require('aws-sdk');
 AWS.config.update({ region: 'us-east-2' });
 var sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
-var s3 = new AWS.S3();
+
 
 
 /**
@@ -38,15 +37,19 @@ class VideoConverterWorker {
                     console.log('[SQS] Message=', videoKey);
                     // Clean up, delete this message from the queue, so it's not executed again
                     sqs.deleteMessage({
-                        QueueUrl: sqsQueueUrl,
+                        QueueUrl: config.sqsQueueURL,
                         ReceiptHandle: message.ReceiptHandle
                     }, function (err, data) {
                         err && console.log('[SQS] Error:', err);
                     });
                     resolve(videoKey) // successfully fill promise
                 } else {
-                    console.log(err);
-                    reject(err);
+                    if (err == null) {
+                        console.log('[SQS] No messages available...');
+                        console.log('[VideoConverter] Worker finished');
+                    } else {
+                        console.log('[SQS] Error:', err);
+                    }
                 }
             });
         })
