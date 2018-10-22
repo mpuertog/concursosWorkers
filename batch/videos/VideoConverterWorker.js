@@ -1,11 +1,13 @@
 const S3VideoUploader = require('./S3VideoUploader');
+const S3VideoDownloader = require('./S3VideoDownloader');
+const SQSMessageCreator = require('./SQSMessageCreator');
 const config = require('../../config');
-const deasync = require('deasync');
 const path = require('path');
-const redis = require('redis');
 const { spawn } = require('child_process');
 const fs = require('fs');
 var AWS = require('aws-sdk');
+AWS.config.update({ region: 'us-east-2' });
+var sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
 var s3 = new AWS.S3();
 
 
@@ -18,65 +20,57 @@ class VideoConverterWorker {
     }
 
     /**
-     * Search on Redis a list with the videos to convert 
-     * @param {*} listKey Key to the list of videos on Redis
+     * Get a video and then delete it from SQS
      */
-    getVideosListSize(listKey) {
-        var ret = null;
-        this.client = redis.createClient({
-            port: config.redisPort,
-            host: config.redisUrl,
-        });
-        this.client.llen(listKey, function (err, result) {
-            ret = { err: err, result: result }
-        });
-        while ((ret == null)) {
-            deasync.runLoopOnce();
-        }
-        return (ret.err || ret.result);
+    async popVideoFromQueue() {
+        return new Promise(function (resolve, reject) {
+            console.log('[SQS] Getting message...');
+            sqs.receiveMessage({
+                QueueUrl: config.sqsQueueURL,
+                MaxNumberOfMessages: 1,
+                VisibilityTimeout: 5, // seconds - how long we want a lock on this job
+                WaitTimeSeconds: 3 // seconds - how long should we wait for a message?
+            }, function (err, data) {
+                if (data.Messages) {
+                    // Get the first message (should be the only one since we said to only get one above)
+                    var message = data.Messages[0];
+                    var videoKey = message.Body;
+                    console.log('[SQS] Message=', videoKey);
+                    // Clean up, delete this message from the queue, so it's not executed again
+                    sqs.deleteMessage({
+                        QueueUrl: sqsQueueUrl,
+                        ReceiptHandle: message.ReceiptHandle
+                    }, function (err, data) {
+                        err && console.log('[SQS] Error:', err);
+                    });
+                    resolve(videoKey) // successfully fill promise
+                } else {
+                    console.log(err);
+                    reject(err);
+                }
+            });
+        })
+
+
     }
 
     /**
-     * Pop the given video from the list on Redis
-     * @param {*} listKey Key to the list of videos on Redis
+     * Delete a file in a given path
+     * @param {*} filePath 
      */
-    popVideoFromQueue(listKey) {
-        var ret = null;
-        this.client = redis.createClient({
-            port: config.redisPort,
-            host: config.redisUrl,
-        });
-        this.client.lpop(listKey, function (err, result) {
-            ret = { err: err, result: result }
-        });
-        while ((ret == null)) {
-            deasync.runLoopOnce();
-        }
-        return (ret.err || ret.result);
-    }
-
-    /**
-     * Deletes all the videos in the input folder
-     * @param {*} dirPath 
-     */
-    deleteInputVideos(dirPath) {
-        try {
-            var uploadFolder = path.resolve(path.join(__dirname, dirPath));
-            var files = fs.readdirSync(uploadFolder);
-        }
-        catch (e) {
-            console.log('Error=', e);
-            return;
-        }
-        if (files.length > 0)
-            for (var i = 0; i < files.length; i++) {
-                var uploadFolder = path.resolve(path.join(__dirname, dirPath));
-                var filePath = uploadFolder + '/' + files[i];
-                console.log('[VideoConverter] Deleting input file: ', files[i]);
-                if (fs.statSync(filePath).isFile())
-                    fs.unlinkSync(filePath);
+    deleteLocalFile(filePath) {
+        fs.unlink(filePath, function (err) {
+            if (err && err.code == 'ENOENT') {
+                // file doens't exist
+                console.info('[VideoConverter] File', filePath, 'not found');
+            } else if (err) {
+                // other errors, e.g. maybe we don't have enough permission
+                console.error('[VideoConverter] Error occurred while trying to remove file', filePath);
+            } else {
+                console.info('[VideoConverter] Deleted file', filePath);
             }
-    };
+        });
+    }
 
     /**
      * Uses FFMPEG on the host machine to convert a given video
@@ -84,113 +78,98 @@ class VideoConverterWorker {
      * @param {*} output The URI where the output video will be wrtitten
      * @param {*} keyName The Key for Amazon S3 storage
      */
-    convertVideo(input, output, keyName) {
-        let s3Uploader = new S3VideoUploader;
-        let queryParameterRuta = /[^/]*$/.exec(input)[0].replace(/\.[^/.]+$/, '');
-        console.log('[VideoConverter][FFMPEG] Converting ' + input + ' into ' + output);
-        const scale = 'scale=-1:1080';
-        const format = 'mp4';
-        const vcodec = 'libx264';
-        const acodec = 'aac';
-        const quality = '25';
+    async convertVideo(input, output, keyName) {
+        return new Promise(function (resolve, reject) {
+            let queryParameterRuta = /[^/]*$/.exec(input)[0].replace(/\.[^/.]+$/, '');
+            console.log('[VideoConverter][FFMPEG] Converting ' + input + ' into ' + output);
+            const scale = 'scale=-1:1080';
+            const format = 'mp4';
+            const vcodec = 'libx264';
+            const acodec = 'aac';
+            const quality = '25';
 
-        //var args = ['-i', input, '-vf', scale, '-f', format, '-vcodec', vcodec, '-acodec', acodec, '-crf', quality, output, '-hide_banner', '-y']
-        var args = ['-i', input, '-f', format, '-vcodec', vcodec, '-acodec', acodec, '-crf', quality, output, '-hide_banner', '-y']
+            //var args = ['-i', input, '-vf', scale, '-f', format, '-vcodec', vcodec, '-acodec', acodec, '-crf', quality, output, '-hide_banner', '-y']
+            var args = ['-i', input, '-f', format, '-vcodec', vcodec, '-acodec', acodec, '-crf', quality, output, '-hide_banner', '-y']
 
-        try {
-            const ffmpeg = spawn('ffmpeg', args);
-            ffmpeg.stderr.on('data', (data) => {
-                //Enable this only for debug
-                //console.log(`${data}`);
-            });
-            ffmpeg.on('close', (code) => {
-                console.log(`[VideoConverter][FFMPEG] Finished with code ${code}`);
+            try {
+                const ffmpeg = spawn('ffmpeg', args);
+                ffmpeg.stderr.on('data', (data) => {
+                    //Enable this only for debug
+                    //console.log(`${data}`);
+                });
+                ffmpeg.on('close', (code) => {
+                    console.log(`[VideoConverter][FFMPEG] Finished with code ${code}`);
 
-                //Update video status on DB
-                console.log(`[VideoConverter][FFMPEG] Updating DB ${queryParameterRuta}`);
+                    // TODO 
+                    //Update video status on DB
 
-                //Change keyName extension
-                let pos = keyName.lastIndexOf(".");
-                keyName = keyName.substr(0, pos < 0 ? keyName.length : pos) + '.mp4';
+                    if (code == 1) {  //Ok = 0, Error = 1
+                        this.reAddVideoToQueue(input);
+                    }
+                    resolve();
+                });
 
-                // Upload finished video to S3
-                s3Uploader.uploadVideoToS3(config.s3BucketConverted, keyName, output);
+            } catch (err) {
+                this.reAddVideoToQueue(input);
+                console.error(err);
+                reject(err);
+            }
+        });
 
-                if (code == 1) {  //Ok = 0, Error = 1
-                    this.reAddVideoToQueue(input);
-                }
-            });
+    }
 
-        } catch (err) {
-            this.reAddVideoToQueue(input);
-            console.error(err);
-        }
-
+    /**
+     * Send a video key to SQS if the worker process fail
+     * @param {*} campaignName Unique key to bind the uploaded video
+     * @param {*} inputVideo URI to uploaded video
+     */
+    reAddVideoToQueue(campaignName, inputVideo) {
+        console.log('[VideoConverter] Re-adding the video', inputVideo, 'to the queue due an error')
+        let messageCreator = new SQSMessageCreator;
+        messageCreator.createMessage(campaignName, inputVideo);
     }
 
 
     /**
      * Setup the output video filename and execute the conversion from the popped out element of the queue
-     * @param {*} campaignName Identifier of the campaign where the videos belong
      */
-    generateConvertTask(campaignName) {
-        this.campaignName = campaignName;
-        var videosPending = this.getVideosListSize(campaignName);
+    async runWorker() {
+        console.log('[VideoConverter] Worker started...');
+        let s3VideoDownloader = new S3VideoDownloader;
+        let s3VideoUploader = new S3VideoUploader;
 
-        console.log('[VideoConverter] Worker started for campaign', campaignName)
-        if (videosPending == 0) {
-            console.log('[VideoConverter] No videos at the queue');
-        }
-        while (videosPending > 0) {
-            //Take filename from queue
-            let keyName = this.popVideoFromQueue(campaignName);
-            let inputFile = config.downloadFolder + keyName;
+        //Take filename from queue
+        let keyName = await this.popVideoFromQueue();
+        let inputFile = config.downloadFolder + keyName;
 
-            //Download file from bucket
-            //let downloadPromise = s3VideoDownloader.s3download(config.s3BucketOriginal, keyName, config.downloadFolder);
-            console.log('[S3VideoDownloader] Download file:', keyName, 'from bucket:', config.s3BucketOriginal, 'into:', inputFile);
+        //Change converted file extension
+        let outputFile = config.convertedFolder + keyName;
+        let pos = outputFile.lastIndexOf(".");
+        outputFile = outputFile.substr(0, pos < 0 ? outputFile.length : pos) + '.mp4';
 
-            let params = {
-                Bucket: config.s3BucketOriginal,
-                Key: keyName
-            };
+        //Download video from S3
+        await s3VideoDownloader.s3download(config.s3BucketOriginal, keyName, config.downloadFolder);
 
-            let file = fs.createWriteStream(inputFile);
+        //Convert video
+        await this.convertVideo(inputFile, outputFile, keyName);
 
-            return new Promise((resolve, reject) => {
-                s3.getObject(params).createReadStream()
-                    .on('end', () => {
-                        console.log('[S3VideoDownloader] Download successfull');
-                        //Change converted file extension
-                        let outputFile = config.convertedFolder + keyName;
-                        let pos = outputFile.lastIndexOf(".");
-                        outputFile = outputFile.substr(0, pos < 0 ? outputFile.length : pos) + '.mp4';
-                        this.convertVideo(inputFile, outputFile, keyName);
-                        videosPending--;
-                        return resolve();
-                    })
-                    .on('error', (error) => {
-                        console.log('[S3VideoDownloader] Error while download')
-                        return reject(error);
-                    }).pipe(file);
-            });
+        //Change videoKey extension
+        pos = keyName.lastIndexOf(".");
+        keyName = keyName.substr(0, pos < 0 ? keyName.length : pos) + '.mp4';
 
-        }
-        this.client.save();
-        this.client.quit();
-        console.log('[VideoConverter] Worker finished for campaign', campaignName);
+        //Upload converted video to S3
+        await s3VideoUploader.uploadVideoToS3(config.s3BucketConverted, keyName, outputFile);
+
+        //Delete original file
+        this.deleteLocalFile(inputFile);
+
+        //Delete converted file
+        this.deleteLocalFile(outputFile);
+
+        console.log('[VideoConverter] Worker finished');
+        return;
     };
 
-
-    reAddVideoToQueue(inputVideo) {
-        this.client = redis.createClient({
-            port: config.redisPort,
-            host: config.redisUrl,
-        });
-        this.client.rpush(this.campaignName, inputVideo);
-        console.log('[VideoConverter][FFMPEG] Video re-added to queue due an error: ', inputVideo);
-        this.client.save();
-    }
 
 }
 

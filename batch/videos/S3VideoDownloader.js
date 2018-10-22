@@ -18,24 +18,23 @@ class S3VideoDownloader {
      * @param {*} keyName The file name for the video
      * @param {*} localDest The location of the video to download
      */
-    s3download(bucketName, keyName, localDest) {
-        console.log('[S3VideoDownloader] Download file:', keyName, 'from bucket:', bucketName, 'into:', localDest);
-        let params = {
-            Bucket: bucketName,
-            Key: keyName
-        };
-
-        let file = fs.createWriteStream(localDest+'/'+keyName);
-
+    async s3download(bucketName, keyName, localDest) {
         return new Promise((resolve, reject) => {
+            console.log('[S3VideoDownloader] Download file:', keyName, 'from bucket:', bucketName, 'into:', localDest);
+            let params = {
+                Bucket: bucketName,
+                Key: keyName
+            };
+
+            let file = fs.createWriteStream(localDest + '/' + keyName);
             s3.getObject(params).createReadStream()
                 .on('end', () => {
                     console.log('[S3VideoDownloader] Download successfull');
-                    return resolve();
+                    resolve();
                 })
                 .on('error', (error) => {
                     console.log('[S3VideoDownloader] Error while download')
-                    return reject(error);
+                    reject(error);
                 }).pipe(file);
         });
     };

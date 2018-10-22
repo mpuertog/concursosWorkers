@@ -16,23 +16,23 @@ class S3VideoUploader {
      * @param {*} videoKey The file name for the video
      * @param {*} videoFilePath The location of the video to upload
      */
-    uploadVideoToS3(bucketURI, videoKey, videoFilePath) {
-        console.log('[S3VideoUploader] Upload started for:', videoFilePath, 'on bucket:', bucketURI, 'with key:', videoKey);
-        try {
+    async uploadVideoToS3(bucketURI, videoKey, videoFilePath) {
+        return new Promise(function (resolve, reject) {
+            console.log('[S3VideoUploader] Upload started for:', videoFilePath, 'on bucket:', bucketURI, 'with key:', videoKey);
             fs.readFile(videoFilePath, function (err, data) {
                 if (err) { throw err; }
                 var params = { Bucket: bucketURI, Key: videoKey, Body: data };
                 s3.putObject(params, function (err, data) {
                     if (err) {
-                        console.log('[S3VideoUploader]', err);
+                        console.log('[S3VideoUploader] Error:', err);
+                        reject();
                     } else {
                         console.log('[S3VideoUploader] Successfully uploaded', videoKey, 'to', bucketURI);
+                        resolve();
                     }
                 });
             });
-        } catch (error) {
-            console.log('[S3VideoUploader] Error: ', error);
-        }
+        });
     }
 
 }

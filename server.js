@@ -20,7 +20,7 @@ app.listen(8090, () => {
     console.log('[VideoConverterWorker] Interval set to', config.cronIntervalMinutes, 'minutes');
     let task = cron.schedule(cronIntervalParameter, function () {
         var converter = new videoConverterWorker;
-        converter.generateConvertTask(config.contestName);
+        converter.runWorker();
     });
     task.start();
 });
