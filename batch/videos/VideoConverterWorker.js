@@ -7,6 +7,7 @@ const fs = require('fs');
 var AWS = require('aws-sdk');
 AWS.config.update({ region: config.awsRegion });
 var sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
+const models = require('../../models/index');
 
 
 
@@ -132,6 +133,24 @@ class VideoConverterWorker {
         messageCreator.createMessage(campaignName, inputVideo);
     }
 
+    /**
+     * Update the state of an uploaded video in the DB
+     * @param {*} rutaParameter 
+     */
+    updateVideoOnDataBase(rutaParameter) {
+        console.log('[VideoConverter] Updating status for key:', rutaParameter);
+        models.Video.update(
+            { estado: 'Convertido' },
+            { where: { ruta: rutaParameter } }
+        )
+            .then(result =>
+                console.log('[VideoConverter] Database updated', rutaParameter)
+            )
+            .catch(err =>
+                console.log('[VideoConverter] Cannot update video status on database:', err)
+            )
+    }
+
 
     /**
      * Setup the output video filename and execute the conversion from the popped out element of the queue
@@ -163,7 +182,10 @@ class VideoConverterWorker {
         //Upload converted video to S3
         await s3VideoUploader.uploadVideoToS3(config.s3BucketConverted, keyName, outputFile);
 
-        //UPDATE
+        //Remove extenxsion from key
+        keyName = keyName.replace(/\.[^/.]+$/, "");
+        //Update video status
+        this.updateVideoOnDataBase(keyName);
 
         //Delete original file
         this.deleteLocalFile(inputFile);
