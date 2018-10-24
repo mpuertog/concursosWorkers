@@ -5,7 +5,7 @@ const config = require('../../config');
 const { spawn } = require('child_process');
 const fs = require('fs');
 var AWS = require('aws-sdk');
-AWS.config.update({ region: 'us-east-2' });
+AWS.config.update({ region: config.awsRegion });
 var sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
 
 
@@ -162,6 +162,8 @@ class VideoConverterWorker {
 
         //Upload converted video to S3
         await s3VideoUploader.uploadVideoToS3(config.s3BucketConverted, keyName, outputFile);
+
+        //UPDATE
 
         //Delete original file
         this.deleteLocalFile(inputFile);
