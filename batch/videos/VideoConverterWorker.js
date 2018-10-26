@@ -191,7 +191,7 @@ class VideoConverterWorker {
         this.deleteLocalFile(inputFile);
 
         //Delete converted file
-        this.deleteLocalFile(outputFile);
+       // this.deleteLocalFile(outputFile);
 
         console.log('[VideoConverter] Worker finished');
         return;
