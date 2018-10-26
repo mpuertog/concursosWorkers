@@ -3,7 +3,7 @@
     "username": "postgres",
     "password": "Qwerty123",
     "database": "videos",
-    "host": "videos.cpgzqedqj6zz.us-east-2.rds.amazonaws.com",
+    "host": "videos.cpgzqedqj6zz.us-east-2.rds.amazonaws.com", 
     "port": "5432",
     "dialect": "postgres"
   },
