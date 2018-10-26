@@ -138,10 +138,7 @@ class VideoConverterWorker {
      * @param {*} rutaParameter 
      */
     updateVideoOnDataBase(rutaParameter) {
-        console.log('[VideoConverter] Updating status for key:', rutaParameter);
-        //Check DB connection
-        sequelize.authenticate().then(function(errors) { console.log(errors) });
-        
+        console.log('[VideoConverter] Updating status for key:', rutaParameter);        
         models.Video.update(
             { estado: 'Convertido' },
             { where: { ruta: rutaParameter } }
