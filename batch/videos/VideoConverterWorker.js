@@ -144,7 +144,7 @@ class VideoConverterWorker {
             { where: { ruta: rutaParameter } }
         )
             .then(result =>
-                console.log('[VideoConverter] Database updated', rutaParameter)
+                console.log('[VideoConverter] Database updated', rutaParameter, result)
             )
             .catch(err =>
                 console.log('[VideoConverter] Cannot update video status on database:', err)
