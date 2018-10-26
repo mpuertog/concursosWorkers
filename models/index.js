@@ -14,6 +14,7 @@ var config = {
 };
 const db = {};
 let sequelize = new Sequelize(config.database, config.username, config.password, config);
+sequelize.authenticate().then(function(errors) { console.log(errors) });
 
 fs
   .readdirSync(__dirname)
