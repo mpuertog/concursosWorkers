@@ -3,8 +3,8 @@ const config = require('../../config');
 
 AWS.config.update({
     region: 'us-east-1',
-    accessKeyId: config.keyId,
-    secretAccessKey: config.secret
+    accessKeyId: config.mailKeyId,
+    secretAccessKey: config.mailSecret
 });
 
 var utils = function () {
@@ -58,7 +58,6 @@ var utils = function () {
 
     return {
         sendMail: sendMail
-
     }
 }
 

@@ -8,6 +8,7 @@ var AWS = require('aws-sdk');
 AWS.config.update({ region: config.awsRegion });
 var sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
 const models = require('../../models/index');
+const utils = require('../email/sendMail');
 
 
 
@@ -17,6 +18,7 @@ const models = require('../../models/index');
 class VideoConverterWorker {
 
     constructor() {
+        this.email = '';
     }
 
     /**
@@ -29,12 +31,16 @@ class VideoConverterWorker {
                 QueueUrl: config.sqsQueueURL,
                 MaxNumberOfMessages: 1,
                 VisibilityTimeout: 5, // seconds - how long we want a lock on this job
-                WaitTimeSeconds: 3 // seconds - how long should we wait for a message?
+                WaitTimeSeconds: 3, // seconds - how long should we wait for a message?
+                MessageAttributeNames: [ //Get all message attributes
+                    "All"
+                 ]
             }, function (err, data) {
                 if (data.Messages) {
                     // Get the first message (should be the only one since we said to only get one above)
                     var message = data.Messages[0];
                     var videoKey = message.Body;
+                    this.email = message.MessageAttributes.Email.StringValue;
                     console.log('[SQS] Message=', videoKey);
                     // Clean up, delete this message from the queue, so it's not executed again
                     sqs.deleteMessage({
@@ -82,9 +88,8 @@ class VideoConverterWorker {
      * @param {*} output The URI where the output video will be wrtitten
      * @param {*} keyName The Key for Amazon S3 storage
      */
-    async convertVideo(input, output, keyName) {
+    async convertVideo(input, output) {
         return new Promise(function (resolve, reject) {
-            let queryParameterRuta = /[^/]*$/.exec(input)[0].replace(/\.[^/.]+$/, '');
             console.log('[VideoConverter][FFMPEG] Converting ' + input + ' into ' + output);
             const scale = 'scale=-1:1080';
             const format = 'mp4';
@@ -103,9 +108,6 @@ class VideoConverterWorker {
                 });
                 ffmpeg.on('close', (code) => {
                     console.log(`[VideoConverter][FFMPEG] Finished with code ${code}`);
-
-                    // TODO 
-                    //Update video status on DB
 
                     if (code == 1) {  //Ok = 0, Error = 1
                         this.reAddVideoToQueue(input);
@@ -187,11 +189,14 @@ class VideoConverterWorker {
         //Update video status
         this.updateVideoOnDataBase(keyName);
 
+        //Send email notification
+        utils.sendMail(this.email);
+
         //Delete original file
         this.deleteLocalFile(inputFile);
 
         //Delete converted file
-       // this.deleteLocalFile(outputFile);
+        this.deleteLocalFile(outputFile);
 
         console.log('[VideoConverter] Worker finished');
         return;
