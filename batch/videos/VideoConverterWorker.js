@@ -34,13 +34,13 @@ class VideoConverterWorker {
                 WaitTimeSeconds: 3, // seconds - how long should we wait for a message?
                 MessageAttributeNames: [ //Get all message attributes
                     "All"
-                 ]
+                ]
             }, function (err, data) {
                 if (data.Messages) {
                     // Get the first message (should be the only one since we said to only get one above)
                     var message = data.Messages[0];
                     var videoKey = message.Body;
-                    this.email = message.MessageAttributes.Email.StringValue;
+                    var email = message.MessageAttributes.Email.StringValue;
                     console.log('[SQS] Message=', videoKey);
                     // Clean up, delete this message from the queue, so it's not executed again
                     sqs.deleteMessage({
@@ -49,7 +49,11 @@ class VideoConverterWorker {
                     }, function (err, data) {
                         err && console.log('[SQS] Error:', err);
                     });
-                    resolve(videoKey) // successfully fill promise
+                    var queueReturn = {
+                        Key: videoKey,
+                        Email: email
+                    }
+                    resolve(queueReturn); // successfully fill promise
                 } else {
                     if (err == null) {
                         console.log('[SQS] No messages available...');
@@ -140,7 +144,7 @@ class VideoConverterWorker {
      * @param {*} rutaParameter 
      */
     updateVideoOnDataBase(rutaParameter) {
-        console.log('[VideoConverter] Updating status for key:', rutaParameter);        
+        console.log('[VideoConverter] Updating status for key:', rutaParameter);
         models.Video.update(
             { estado: 'Convertido' },
             { where: { ruta: rutaParameter } }
@@ -163,8 +167,10 @@ class VideoConverterWorker {
         let s3VideoUploader = new S3VideoUploader;
 
         //Take filename from queue
-        let keyName = await this.popVideoFromQueue();
+        let queueReturn = await this.popVideoFromQueue();
+        let keyName = queueReturn.Key;
         let inputFile = config.downloadFolder + keyName;
+        let email = queueReturn.Email;
 
         //Change converted file extension
         let outputFile = config.convertedFolder + keyName;
@@ -190,7 +196,7 @@ class VideoConverterWorker {
         this.updateVideoOnDataBase(keyName);
 
         //Send email notification
-        utils.sendMail(this.email);
+        utils.sendMail(email);
 
         //Delete original file
         this.deleteLocalFile(inputFile);
