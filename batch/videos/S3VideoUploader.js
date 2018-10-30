@@ -20,12 +20,16 @@ class S3VideoUploader {
         return new Promise(function (resolve, reject) {
             console.log('[S3VideoUploader] Upload started for:', videoFilePath, 'on bucket:', bucketURI, 'with key:', videoKey);
             fs.readFile(videoFilePath, function (err, data) {
-                if (err) { throw err; }
+                if (err) { 
+                    //throw err; 
+                    console.log('[S3VideoUploader] Error=', err);
+                }
                 var params = { Bucket: bucketURI, Key: videoKey, Body: data };
                 s3.putObject(params, function (err, data) {
                     if (err) {
                         console.log('[S3VideoUploader] Error:', err);
-                        reject();
+                        //reject();
+                        resolve();
                     } else {
                         console.log('[S3VideoUploader] Successfully uploaded', videoKey, 'to', bucketURI);
                         resolve();

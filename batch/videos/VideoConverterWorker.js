@@ -112,31 +112,15 @@ class VideoConverterWorker {
                 });
                 ffmpeg.on('close', (code) => {
                     console.log(`[VideoConverter][FFMPEG] Finished with code ${code}`);
-
-                    if (code == 1) {  //Ok = 0, Error = 1
-                        this.reAddVideoToQueue(input);
-                    }
                     resolve();
                 });
 
             } catch (err) {
-                this.reAddVideoToQueue(input);
                 console.error(err);
                 reject(err);
             }
         });
 
-    }
-
-    /**
-     * Send a video key to SQS if the worker process fail
-     * @param {*} campaignName Unique key to bind the uploaded video
-     * @param {*} inputVideo URI to uploaded video
-     */
-    reAddVideoToQueue(campaignName, inputVideo) {
-        console.log('[VideoConverter] Re-adding the video', inputVideo, 'to the queue due an error')
-        let messageCreator = new SQSMessageCreator;
-        messageCreator.createMessage(campaignName, inputVideo);
     }
 
     /**
