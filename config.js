@@ -1,7 +1,7 @@
 const homedir = require('os').homedir().replace(/\\/g, "/");
 const config = {
     "contestName": "firstContest",
-    "cronIntervalMinutes": "10",
+    "cronIntervalMinutes": "30",
     "downloadFolder": homedir + "/git/concursosWorkers/fs/download/",
     "convertedFolder": homedir + "/git/concursosWorkers/fs/converted/",
     "s3BucketOriginal":"concursos-bucket/videos_original",
